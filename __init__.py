@@ -779,12 +779,12 @@ class SPRITESHEET_PT_Panel(bpy.types.Panel):
         col.prop(scene.render, "resolution_y")
 
         if scene.scene_render_resolution != str(scene.render.resolution_percentage)+"%":
-            col.label(text="Custom resolution percentage used: %d%s" %
+            col.label(text="Custom resolution scale used: %d%s" %
                       (scene.render.resolution_percentage, "%"), icon="ERROR")
             col.label(text="It is recommended to use the dropdown")
 
         res_percentage_layout = col.row(align=True)
-        res_percentage_layout.label(text="Resolution percentage:")
+        res_percentage_layout.label(text="Resolution scale:")
         res_percentage_layout.prop(scene, "scene_render_resolution")
 
         x_resolution = math.floor(
