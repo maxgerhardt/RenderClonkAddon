@@ -153,7 +153,7 @@ def GetSpritesheetInfo(action_entries):
             row_height = 0
 
         sheet_strips[MetaData.GetActionName(action_entry)] = GetSpriteStripInfo(
-            action_entry, current_x_position, current_y_position)  # Handels render direction..
+            action_entry, current_x_position, current_y_position)  # Handles render direction..
 
         current_x_position += sheetstrip_width
         action_index += 1
@@ -344,11 +344,11 @@ def GetMaterialsToReplace():
     materials_to_replace = []
 
     # Just iterate over every object to make things easier
-    for object in bpy.context.scene.objects:
-        if object.type != "MESH":
+    for scene_object in bpy.context.scene.objects:
+        if scene_object.type != "MESH":
             continue
 
-        for material_index, material_slot in enumerate(object.material_slots):
+        for material_index, material_slot in enumerate(scene_object.material_slots):
             if material_slot.material == None:
                 continue
 
@@ -360,7 +360,7 @@ def GetMaterialsToReplace():
             is_overlay = "overlay" in material_name
 
             material_info = {
-                "owner": object,
+                "owner": scene_object,
                 "material_index": material_index,
                 "original_material": material_slot.material,
                 "is_overlay": is_overlay
