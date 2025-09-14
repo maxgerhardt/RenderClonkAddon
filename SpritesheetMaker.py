@@ -527,7 +527,7 @@ class TIMER_OT(bpy.types.Operator):
     ###
 
     action_entries = []
-    replacement_materials: list
+    replacement_materials: list = []
 
     has_render_finished = False
     sheet_width: int
@@ -888,13 +888,13 @@ class TIMER_OT(bpy.types.Operator):
         self.reset_camera_shift()
         reset_anim_target_transforms(self)
 
-        if self.current_action_index < len(self.action_entries):
-            current_action: MetaData.ActionMetaData = self.action_entries[self.current_action_index]
-            if current_action.find_material_name != "" and current_action.replace_material != None:
-                ResetMaterialReplacementByName(
-                    self.replacement_materials, current_action.find_material_name, current_action.replace_material)
+        if self.replacement_materials and len(self.replacement_materials) > 0:
+            if self.current_action_index < len(self.action_entries):
+                current_action: MetaData.ActionMetaData = self.action_entries[self.current_action_index]
+                if current_action.find_material_name != "" and current_action.replace_material != None:
+                    ResetMaterialReplacementByName(
+                        self.replacement_materials, current_action.find_material_name, current_action.replace_material)
 
-        if len(self.replacement_materials) > 0:
             ResetOverlayMaterials(self.replacement_materials)
 
         if self.output_image:
