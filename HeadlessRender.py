@@ -217,27 +217,14 @@ class _Timer:
         return Driver(**kw).run()
 
 
-def broken_overlay_sprites():
-    """Overlay sprites (*_o.png) in which most opaque pixels are black."""
-    import glob
-    import numpy as np
-    bad = []
-    for path in glob.glob(os.path.join(_pkg.PathUtilities.GetOutputPath(), "sprites", "*_o.png")):
-        image = bpy.data.images.load(path)
-        px = np.empty(len(image.pixels), dtype=np.float32)
-        image.pixels.foreach_get(px)
-        bpy.data.images.remove(image)
-        px = px.reshape(-1, 4)
-        opaque = px[px[:, 3] > 0.8]
-        if len(opaque) > 20 and (opaque[:, :3].sum(axis=1) < 0.15).mean() > 0.5:
-            bad.append(path)
-    return bad
-
-
 def render():
     scene = bpy.context.scene
     scene.cycles.device = "CPU"
     scene.cycles.samples = A.samples
+    # The add-on enables persistent data for speed. With it, Cycles sometimes keeps the old materials after the
+    # per-frame material slot swaps (Holdout/Overlay), so whole actions came out wrong (clothes gray in Graphics,
+    # head/hands black in Overlay). Without it every frame syncs the scene; the sprites are tiny, so it costs little.
+    scene.render.use_persistent_data = False
     scene.custom_output_dir = OUT
     wanted = {a.strip() for a in A.actions.split(",") if a.strip()}
     if wanted:
@@ -251,36 +238,10 @@ def render():
     SM.current_rerender_state = ""
     Overlay, Holdout, Fill = ClonkPort.GetOrAppendOverlayMaterials()
 
-    def render_sheets():
-        if scene.spritesheet_settings.overlay_rendering_enum == "Separate":
-            Driver("Graphics", set_overlay_material=True, replace_overlay_material=False).run()
-        else:
-            Driver("Graphics").run()
-
-    render_sheets()
-    if os.environ.get("RC_TEST_BREAK"):   # test hook: blacken one overlay sprite to exercise the repair below
-        import numpy as np
-        path = os.path.join(_pkg.PathUtilities.GetOutputPath(), "sprites", os.environ["RC_TEST_BREAK"])
-        image = bpy.data.images.load(path)
-        px = np.zeros(len(image.pixels), dtype=np.float32)
-        px[3::4] = 1.0
-        image.pixels.foreach_set(px)
-        image.save()
-        bpy.data.images.remove(image)
-        print("test: broke", os.path.basename(path))
-    # Rarely (seen once in ~10 Knight renders, not reproducible) a frame of the overlay pass comes out as an opaque
-    # black silhouette: the Holdout material swap did not take effect for that frame. Re-render such frames with
-    # the add-on's "render missing sprites and repack" mode.
-    for attempt in range(3):
-        bad = broken_overlay_sprites()
-        if not bad:
-            break
-        print(f"re-rendering {len(bad)} broken overlay sprite(s): {', '.join(os.path.basename(p) for p in bad)}")
-        for path in bad:
-            os.remove(path)
-        SM.current_rerender_state = "RepackSpriteSheet"
-        render_sheets()
-        SM.current_rerender_state = ""
+    if scene.spritesheet_settings.overlay_rendering_enum == "Separate":
+        Driver("Graphics", set_overlay_material=True, replace_overlay_material=False).run()
+    else:
+        Driver("Graphics").run()
     SM.bpy = bpy
     print(f"render time {time.time() - t:.0f} s")
     print(ClonkPort.PrintActmap(OUT))
