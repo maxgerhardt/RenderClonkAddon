@@ -38,6 +38,8 @@ def args():
     ap.add_argument("--setup-only", action="store_true", help="only build and save the .blend")
     ap.add_argument("--blend", default="", help="render this .blend instead of importing")
     ap.add_argument("--face", default="", help="face texture (path, or file name in Clonks/Textures) instead of the mesh's")
+    ap.add_argument("--picture-face", default="", help="face texture only for the title picture, e.g. the detailed "
+                    "Face.png (the original sprites: FaceGob.png in the animations, Face.png in the picture)")
     return ap.parse_args(argv)
 
 
@@ -109,6 +111,20 @@ def add_picture(act_path):
     data = ClonkPort.LoadAction(anim, bpy.context.scene.anim_target)
     entry = MetaData.MakeActionEntry(data)
     ClonkPort._ImportToolsIfAnyLegacy(entry, data, ClonkPort.found_meshes)   # e.g. PictKnight: Tool1=Sword, Tool2=Shield
+    if A.picture_face:
+        # the add-on's per-action material swap: materials named "Face..." use this copy while the picture renders
+        path = A.picture_face if os.path.isabs(A.picture_face) else os.path.join(A.content, "Clonks", "Textures", A.picture_face)
+        face = next((m for m in bpy.data.materials if m.name.startswith("Face") and m.node_tree), None)
+        if face:
+            pict_face = face.copy()
+            pict_face.name = "PictureFace"
+            image = bpy.data.images.load(path, check_existing=True)
+            for node in pict_face.node_tree.nodes:
+                if node.type == "TEX_IMAGE":
+                    node.image = image
+            entry.find_material_name = face.name
+            entry.replace_material = pict_face
+            print(f"picture face: {os.path.basename(path)}")
     entry.render_type_enum = "Picture"
     entry.use_normal_action_placement = False
     print(f"picture: {name} {entry.width}x{entry.height}")

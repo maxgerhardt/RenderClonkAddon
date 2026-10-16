@@ -38,6 +38,8 @@ blender -b --factory-startup -P HeadlessRender.py -- --content <Clonk content fo
 
 Output in `--out`: `Graphics.png`, `Overlay.png`, `ActMap.txt`, `DefCore.txt` and the `.blend`. Options:
 `--actions Walk,Jump` (subset), `--samples 256`, `--face FaceJungle.png` (other face texture),
+`--picture-face Face.png` (face texture only for the title picture: the original sprites use the meshes'
+FaceGob.png in the animations and the detailed Face.png in the 32x40 picture),
 `--setup-only` (only build the `.blend`, e.g. to edit it), `--blend X.blend` (render an edited `.blend`).
 The add-on has to be installed in Blender (or its parent `addons` folder be on `BLENDER_USER_SCRIPTS`).
 
