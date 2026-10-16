@@ -24,6 +24,7 @@ import sys
 import time
 
 import addon_utils
+import mathutils
 import bpy
 
 
@@ -38,6 +39,11 @@ def args():
     ap.add_argument("--setup-only", action="store_true", help="only build and save the .blend")
     ap.add_argument("--blend", default="", help="render this .blend instead of importing")
     ap.add_argument("--face", default="", help="face texture (path, or file name in Clonks/Textures) instead of the mesh's")
+    ap.add_argument("--attach", default="", help="tool object to carry in every action, e.g. Shield: taken as "
+                    "the title picture holds it and attached to the nearest hand bone")
+    ap.add_argument("--only-attached", action="store_true", help="render only the --attach object: everything else "
+                    "becomes Holdout (hides what is behind it, invisible itself), like the Knight's GraphicsShield.png")
+    ap.add_argument("--suffix", default="", help="output names Graphics<suffix>.png / Overlay<suffix>.png")
     ap.add_argument("--picture-face", default="", help="face texture only for the title picture, e.g. the detailed "
                     "Face.png (the original sprites: FaceGob.png in the animations, Face.png in the picture)")
     return ap.parse_args(argv)
@@ -78,7 +84,92 @@ def setup():
     add_picture(os.path.join(clonks, A.clonk + ".act"))
     if A.face:
         set_face(A.face if os.path.isabs(A.face) else os.path.join(clonks, "Textures", A.face))
+    if A.attach:
+        attach_tool(A.attach, A.only_attached)
     bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT, A.clonk + ".blend"))
+
+
+def flat_up(normal):
+    """World up made orthogonal to a direction (the "up" of a flat tool that faces along normal)."""
+    up = mathutils.Vector((0.0, 0.0, 1.0))
+    return (up - normal * up.dot(normal)).normalized()
+
+
+def attach_tool(name, only):
+    """Carry a tool (e.g. "Shield") in every action: a copy with the shape it has in the title picture pose (where
+    the .act's picture animation holds it), parented to the nearest hand bone, in the always-rendered collection.
+    only=True: all other meshes get the Holdout material, so the sheet shows just the tool (cut where the body
+    is in front of it) and can be drawn as an extra layer over the normal graphics."""
+    scene = bpy.context.scene
+    tool = next((o for o in bpy.data.objects if o.type == "MESH" and o.name.split(".")[0] == name), None)
+    picture = next((e for e in scene.animlist if e.render_type_enum == "Picture"), None)
+    if tool is None or picture is None:
+        raise SystemExit(f"--attach {name}: needs the tool in the title picture (e.g. Knight: PictKnight holds Shield)")
+    rig = scene.anim_target
+    resolution = (scene.render.resolution_x, scene.render.resolution_y)   # prepare_action sets the picture's 32x40
+    SM.prepare_action(picture)
+    scene.frame_set(picture.start_frame)
+    deps = bpy.context.evaluated_depsgraph_get()
+    baked = bpy.data.meshes.new_from_object(tool.evaluated_get(deps))     # shape incl. armature deformation
+    world = tool.matrix_world.copy()
+    copy = bpy.data.objects.new(name + "Attached", baked)
+    scene.always_rendered_objects.objects.link(copy)
+    center = world @ (sum((v.co for v in baked.vertices), baked.vertices[0].co * 0) / len(baked.vertices))
+    # front direction of the tool: area-weighted face normal, oriented toward the camera of the picture
+    normal = mathutils.Vector((0.0, 0.0, 0.0))
+    for poly in baked.polygons:
+        n = (world.to_3x3() @ poly.normal).normalized() * poly.area
+        normal += n if normal.dot(n) >= 0 else -n
+    picture_cam = SM.get_action_camera(picture).matrix_world.translation
+    if normal.dot(picture_cam - center) < 0:
+        normal = -normal
+    normal.normalize()
+    # Attach in a side-view pose (the first regular action, e.g. Walk): at the hand nearer to the camera, still
+    # facing the camera (like the original GraphicsShield: shield seen face-on while walking). From there it
+    # follows that hand through all actions.
+    reference = next(e for e in scene.animlist if e.render_type_enum != "Picture" and e.is_used)
+    SM.prepare_action(reference)
+    scene.frame_set(reference.start_frame)
+    bpy.context.view_layer.update()
+    cam_pos = SM.get_action_camera(reference).matrix_world.translation
+    hands = [b for b in rig.pose.bones if b.name.endswith("Hand")]
+    bone = min(hands, key=lambda b: ((rig.matrix_world @ b.head) - cam_pos).length)
+    hand = rig.matrix_world @ ((bone.head + bone.tail) / 2)
+    toward_cam = (cam_pos - hand)
+    toward_cam.z = 0
+    toward_cam.normalize()
+    target = hand + toward_cam * 0.15
+    turn = normal.rotation_difference(toward_cam).to_matrix()           # front of the tool -> camera
+    # keep it upright: roll around the view axis so the tool's up (world Z in the picture) points up again
+    def flat(v):
+        return (v - toward_cam * v.dot(toward_cam)).normalized()
+    up_now = flat(turn @ flat_up(normal))
+    up_want = flat(mathutils.Vector((0.0, 0.0, 1.0)))
+    angle = up_now.angle(up_want, 0.0)
+    if up_now.cross(up_want).dot(toward_cam) < 0:
+        angle = -angle
+    turn = mathutils.Matrix.Rotation(angle, 3, toward_cam) @ turn
+    world = (mathutils.Matrix.Translation(target) @ turn.to_4x4() @ mathutils.Matrix.Translation(-center)) @ world
+    # follow the forearm (steadier than the hand, like a strapped shield)
+    forearm = rig.pose.bones.get(bone.name.replace("Hand", "Forearm"))
+    if forearm:
+        bone = forearm
+    copy.parent = rig
+    copy.parent_type = "BONE"
+    copy.parent_bone = bone.name
+    bpy.context.view_layer.update()
+    copy.matrix_world = world
+    scene.render.resolution_x, scene.render.resolution_y = resolution
+    print(f"attached {name} to bone {bone.name}")
+    if only:
+        _o, holdout, _f = ClonkPort.GetOrAppendOverlayMaterials()
+        for ob in bpy.data.objects:
+            if ob.type == "MESH" and ob is not copy:
+                for slot in ob.material_slots:
+                    slot.material = holdout
+        for entry in scene.animlist:            # the title picture shows the whole figure; not part of this sheet
+            if entry.render_type_enum == "Picture":
+                entry.is_used = False
 
 
 def set_face(path):
@@ -226,6 +317,8 @@ def render():
     # head/hands black in Overlay). Without it every frame syncs the scene; the sprites are tiny, so it costs little.
     scene.render.use_persistent_data = False
     scene.custom_output_dir = OUT
+    if A.suffix:
+        scene.spritesheet_settings.spritesheet_suffix = A.suffix
     wanted = {a.strip() for a in A.actions.split(",") if a.strip()}
     if wanted:
         for entry in scene.animlist:
