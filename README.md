@@ -26,6 +26,21 @@ There is an [Examples Release](https://github.com/RoboClonk/RenderClonkAddon/rel
 
 
 
+## Headless rendering (no UI)
+
+`HeadlessRender.py` renders a Clonk's sprite sheets from the command line, e.g. for batch jobs or scripted
+tools (tested with Blender 5.2). It does what "Import Action List...", "Import Object..." and the spritesheet
+render button do, including the title picture of the action list (`Picture=` in the .act file):
+
+```
+blender -b --factory-startup -P HeadlessRender.py -- --content <Clonk content folder> --clonk Knight --out out/Knight
+```
+
+Output in `--out`: `Graphics.png`, `Overlay.png`, `ActMap.txt`, `DefCore.txt` and the `.blend`. Options:
+`--actions Walk,Jump` (subset), `--samples 256`, `--face FaceJungle.png` (other face texture),
+`--setup-only` (only build the `.blend`, e.g. to edit it), `--blend X.blend` (render an edited `.blend`).
+The add-on has to be installed in Blender (or its parent `addons` folder be on `BLENDER_USER_SCRIPTS`).
+
 ## Clonk content files
 
 I uploaded a folder as an extra release, that contains [clonk content files](https://github.com/RoboClonk/RenderClonkAddon/releases/tag/Content), that can be imported by the addon.
