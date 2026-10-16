@@ -18,6 +18,28 @@ from pathlib import Path
 from . import MetaData
 
 
+# Principled BSDF inputs were renamed in Blender 4.0; .mesh files use the Blender 3 names.
+_BSDF_ALIASES = {
+    "Specular": ("Specular IOR Level", "Specular"),
+    "Emission": ("Emission Color", "Emission"),
+    "Subsurface": ("Subsurface Weight", "Subsurface"),
+    "Subsurface Color": ("Subsurface Color",),
+}
+
+
+def _set_bsdf(material_name, input_name, value):
+    """Set a Principled BSDF input by its Blender 3 name; newer names are tried first, missing sockets skipped."""
+    node = bpy.data.materials.get(material_name).node_tree.nodes['Principled BSDF']
+    for name in _BSDF_ALIASES.get(input_name, (input_name,)):
+        if name in node.inputs:
+            socket = node.inputs[name]
+            if isinstance(value, list) and len(socket.default_value) == 3:
+                value = value[:3]
+            socket.default_value = value
+            return True
+    return False
+
+
 def ReadFloatList(string):
     x = 0
     y = 0
@@ -241,48 +263,41 @@ def import_mesh(path, insert_collection=None, reuse_materials=True):
                             current_mat_name = ""
 
                     elif param_name == "Color":
-                        bpy.data.materials.get(current_mat_name).node_tree.nodes['Principled BSDF'].inputs['Base Color'].default_value = [
-                            float(values[0]), float(values[1]), float(values[2]), 1.0]
+                        _set_bsdf(current_mat_name, 'Base Color', [
+                            float(values[0]), float(values[1]), float(values[2]), 1.0])
 
                     elif param_name == "Ref":
-                        bpy.data.materials.get(
-                            current_mat_name).node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = 1.0 - float(values[0])
+                        _set_bsdf(current_mat_name, 'Roughness', 1.0 - float(values[0]))
 
                     elif param_name == "Spec":
-                        bpy.data.materials.get(
-                            current_mat_name).node_tree.nodes['Principled BSDF'].inputs['Specular'].default_value = float(values[0])
+                        _set_bsdf(current_mat_name, 'Specular', float(values[0]))
 
                     elif param_name == "Hardness":
                         # Legacy from Blender 2.7
                         # 'convert' to roughness which is somewhat the opposite.
                         hardness = float(int(values[0]))/100.0
-                        bpy.data.materials.get(
-                            current_mat_name).node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = 1.0 - max(min(hardness, 1.0), 0.0)
+                        _set_bsdf(current_mat_name, 'Roughness', 1.0 - max(min(hardness, 1.0), 0.0))
 
                 # For new shader values
                     elif param_name == "Metallic":
-                        bpy.data.materials.get(
-                            current_mat_name).node_tree.nodes['Principled BSDF'].inputs['Metallic'].default_value = float(values[0])
+                        _set_bsdf(current_mat_name, 'Metallic', float(values[0]))
 
                     elif param_name == "Roughness":
-                        bpy.data.materials.get(
-                            current_mat_name).node_tree.nodes['Principled BSDF'].inputs['Roughness'].default_value = float(values[0])
+                        _set_bsdf(current_mat_name, 'Roughness', float(values[0]))
 
                     elif param_name == "Emission_Strength":
-                        bpy.data.materials.get(
-                            current_mat_name).node_tree.nodes['Principled BSDF'].inputs['Emission Strength'].default_value = float(values[0])
+                        _set_bsdf(current_mat_name, 'Emission Strength', float(values[0]))
 
                     elif param_name == "Emission_Color":
-                        bpy.data.materials.get(current_mat_name).node_tree.nodes['Principled BSDF'].inputs['Emission'].default_value = [
-                            float(values[0]), float(values[1]), float(values[2]), 1.0]
+                        _set_bsdf(current_mat_name, 'Emission', [
+                            float(values[0]), float(values[1]), float(values[2]), 1.0])
 
                     elif param_name == "Subsurface_Color":
-                        bpy.data.materials.get(current_mat_name).node_tree.nodes['Principled BSDF'].inputs['Subsurface Color'].default_value = [
-                            float(values[0]), float(values[1]), float(values[2]), 1.0]
+                        _set_bsdf(current_mat_name, 'Subsurface Color', [
+                            float(values[0]), float(values[1]), float(values[2]), 1.0])
 
                     elif param_name == "Subsurface_Strength":
-                        bpy.data.materials.get(
-                            current_mat_name).node_tree.nodes['Principled BSDF'].inputs['Subsurface'].default_value = float(values[0])
+                        _set_bsdf(current_mat_name, 'Subsurface', float(values[0]))
 
                 if mode == mesh_import_state.TEXTURES:
                     if current_mat_name == "": # The last material was already present, so we ignore the texture as well.
@@ -292,11 +307,9 @@ def import_mesh(path, insert_collection=None, reuse_materials=True):
                     param_name, values = GetParameters(line)
 
                     if param_name == "Name":
-                        tex = bpy.data.textures.find(values[0])
-                        if tex is None:
-                            tex = bpy.data.textures.new(values[0])
-                        else:
-                            mode = mesh_import_state.EMPTY
+                        # textures.find() returns an index (-1 = missing), never None, so this block used to skip
+                        # every [Texture] section and face/foot images were never loaded.
+                        tex = bpy.data.textures.get(values[0]) or bpy.data.textures.new(values[0], "IMAGE")
 
                     if param_name == "Image":
                         current_material = bpy.data.materials.get(
